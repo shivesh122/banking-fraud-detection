@@ -5,7 +5,7 @@ A machine-learning fraud detection system for card, UPI, ATM and online payments
 **business cost**, explains every alert with **reason codes**, and serves everything through a live
 **fraud-operations dashboard** that can **score transactions in real time in the browser**.
 
-**Live demo:** https://banking-fraud-detection.onrender.com
+**Live demo:** https://banking-fraud-detection-w3e7.onrender.com
 
 ![Overview](docs/screenshots/overview.png)
 
