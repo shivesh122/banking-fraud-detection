@@ -1,0 +1,62 @@
+// =====================================================================
+// Banking Fraud Detection - DAX measures (create a _Measures table and add these)
+// Tables: fact_transactions, dim_customer, dim_merchant, dim_date
+// =====================================================================
+
+// ---------- Volume ----------
+Transactions = COUNTROWS ( fact_transactions )
+Transaction Amount = SUM ( fact_transactions[amount] )
+
+// ---------- Fraud ----------
+Fraud Transactions = CALCULATE ( [Transactions], fact_transactions[is_fraud] = 1 )
+Fraud Amount = CALCULATE ( [Transaction Amount], fact_transactions[is_fraud] = 1 )
+Fraud Rate % = DIVIDE ( [Fraud Transactions], [Transactions] )
+Fraud Basis Points = [Fraud Rate %] * 10000
+
+// ---------- Alerts & model quality ----------
+Alerts = CALCULATE ( [Transactions], fact_transactions[is_alert] = 1 )
+True Positives = CALCULATE ( [Transactions], fact_transactions[is_alert] = 1, fact_transactions[is_fraud] = 1 )
+False Positives = CALCULATE ( [Transactions], fact_transactions[is_alert] = 1, fact_transactions[is_fraud] = 0 )
+False Negatives = CALCULATE ( [Transactions], fact_transactions[is_alert] = 0, fact_transactions[is_fraud] = 1 )
+
+Precision % = DIVIDE ( [True Positives], [Alerts] )
+Recall % = DIVIDE ( [True Positives], [Fraud Transactions] )
+F1 Score = DIVIDE ( 2 * [Precision %] * [Recall %], [Precision %] + [Recall %] )
+False Positive Rate % =
+DIVIDE ( [False Positives], CALCULATE ( [Transactions], fact_transactions[is_fraud] = 0 ) )
+
+Fraud Amount Caught =
+CALCULATE ( [Transaction Amount], fact_transactions[is_alert] = 1, fact_transactions[is_fraud] = 1 )
+Fraud Amount Missed =
+CALCULATE ( [Transaction Amount], fact_transactions[is_alert] = 0, fact_transactions[is_fraud] = 1 )
+Amount Recall % = DIVIDE ( [Fraud Amount Caught], [Fraud Amount] )
+
+// What-if parameters (Modeling > New parameter): Review Cost (default 150), Recovery Rate (default 0.85)
+Net Savings =
+[Fraud Amount Caught] * 'Recovery Rate'[Recovery Rate Value] - [Alerts] * 'Review Cost'[Review Cost Value]
+
+Alerts per Day = DIVIDE ( [Alerts], DISTINCTCOUNT ( fact_transactions[date_key] ) )
+
+// ---------- Time intelligence ----------
+Alerts (Last 7 Days) =
+VAR LastDate = MAX ( dim_date[full_date] )
+RETURN CALCULATE ( [Alerts], DATESINPERIOD ( dim_date[full_date], LastDate, -7, DAY ) )
+
+Fraud Rate % (Prev 30 Days) =
+VAR LastDate = MAX ( dim_date[full_date] )
+RETURN CALCULATE ( [Fraud Rate %], DATESINPERIOD ( dim_date[full_date], LastDate - 30, -30, DAY ) )
+
+Fraud Rate Δ vs Prior 30d =
+VAR LastDate = MAX ( dim_date[full_date] )
+VAR Cur = CALCULATE ( [Fraud Rate %], DATESINPERIOD ( dim_date[full_date], LastDate, -30, DAY ) )
+RETURN Cur - [Fraud Rate % (Prev 30 Days)]
+
+// ---------- Risk ----------
+Avg Fraud Probability = AVERAGE ( fact_transactions[fraud_probability] )
+High-Risk Customers =
+COUNTROWS (
+    FILTER ( VALUES ( dim_customer[customer_id] ), CALCULATE ( MAX ( fact_transactions[fraud_probability] ) ) >= 0.7 )
+)
+
+// ---------- Formatting ----------
+Precision Colour = SWITCH ( TRUE (), [Precision %] >= 0.5, "#34d399", [Precision %] >= 0.25, "#fbbf24", "#f43f5e" )

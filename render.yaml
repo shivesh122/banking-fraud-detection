@@ -1,0 +1,10 @@
+# Render Blueprint: static site whose build generates data, trains the models and exports them
+services:
+  - type: web
+    name: banking-fraud-detection
+    runtime: static
+    buildCommand: pip install -r requirements.txt && python build.py --refresh
+    staticPublishPath: site
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7

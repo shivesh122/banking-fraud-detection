@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fraud Detection Centre</title>
+  <meta name="description" content="Banking fraud detection: Isolation Forest + Gradient Boosting, alert queue, model performance and live transaction scoring." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23111a2e'/><path d='M16 5l9 4v6c0 6-4 10-9 12-5-2-9-6-9-12V9z' fill='none' stroke='%23f43f5e' stroke-width='2.5'/><path d='M12 16l3 3 5-6' fill='none' stroke='%23f43f5e' stroke-width='2.5' stroke-linecap='round'/></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">
+        <svg viewBox="0 0 32 32"><path d="M16 5l9 4v6c0 6-4 10-9 12-5-2-9-6-9-12V9z" /><path d="M12 16l3 3 5-6" /></svg>
+      </span>
+      <div>
+        <h1>Fraud Detection Centre</h1>
+        <p class="sub" id="asof">Loading…</p>
+      </div>
+      <span class="live"><span class="dot"></span>Model live</span>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Pages">
+      <button role="tab" data-tab="overview" aria-selected="true">Overview</button>
+      <button role="tab" data-tab="alerts">Alert Queue</button>
+      <button role="tab" data-tab="model">Model Performance</button>
+      <button role="tab" data-tab="score">Score a Transaction</button>
+      <button role="tab" data-tab="pipeline">Data &amp; Pipeline</button>
+    </nav>
+  </header>
+
+  <main id="app">
+    <!-- OVERVIEW -->
+    <section class="page" id="tab-overview">
+      <p class="period" id="period"></p>
+      <div class="kpis" id="kpis"></div>
+      <div class="grid g-2-1">
+        <div class="card"><div class="card-h"><h2>Daily alerts vs confirmed fraud</h2><span class="hint">Held-out test period</span></div><div class="chart" id="ch-daily"></div></div>
+        <div class="card"><div class="card-h"><h2>Detection by fraud pattern</h2><span class="hint">Share of fraud transactions caught</span></div><div class="chart" id="ch-types"></div></div>
+      </div>
+      <div class="grid g-1-1-1">
+        <div class="card"><div class="card-h"><h2>Fraud amount by category</h2></div><div class="chart" id="ch-cat"></div></div>
+        <div class="card"><div class="card-h"><h2>Fraud rate by channel</h2></div><div class="chart" id="ch-channel"></div></div>
+        <div class="card"><div class="card-h"><h2>Fraud rate by hour of day</h2><span class="hint">All data</span></div><div class="chart" id="ch-hour"></div></div>
+      </div>
+    </section>
+
+    <!-- ALERTS -->
+    <section class="page" id="tab-alerts" hidden>
+      <div class="card filters">
+        <label>Channel <select id="f-ch"><option value="">All channels</option></select></label>
+        <label>Category <select id="f-cat"><option value="">All categories</option></select></label>
+        <label>Outcome <select id="f-out"><option value="">All alerts</option><option value="fraud">Confirmed fraud</option><option value="legit">False positive</option></select></label>
+        <label class="grow">Search <input id="f-q" type="search" placeholder="Transaction, customer or city…" /></label>
+      </div>
+      <div class="grid g-2-1 align-start">
+        <div class="card">
+          <div class="card-h"><h2>Alert queue · last 14 days</h2><span class="hint" id="alert-count"></span></div>
+          <div class="table-wrap" id="tbl-alerts"></div>
+        </div>
+        <aside class="card detail" id="detail"><p class="muted">Select an alert to see why it was flagged.</p></aside>
+      </div>
+    </section>
+
+    <!-- MODEL -->
+    <section class="page" id="tab-model" hidden>
+      <div class="card">
+        <div class="card-h"><h2>Model comparison on unseen data</h2><span class="hint" id="split-info"></span></div>
+        <div class="table-wrap" id="tbl-models"></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>Choose the alert threshold</h2><span class="hint" id="thr-assump"></span></div>
+        <div class="threshold">
+          <div class="slider">
+            <label for="thr">Alert when fraud probability ≥ <b id="thr-val"></b></label>
+            <input type="range" id="thr" min="0.02" max="0.99" step="0.01" />
+            <div class="slider-ends"><span>More alerts, catch more fraud</span><span>Fewer alerts, higher precision</span></div>
+          </div>
+          <div class="thr-stats" id="thr-stats"></div>
+          <div class="confusion" id="confusion"></div>
+        </div>
+      </div>
+      <div class="grid g-1-1">
+        <div class="card"><div class="card-h"><h2>ROC curve</h2><span class="hint">True vs false positive rate</span></div><div class="chart square" id="ch-roc"></div></div>
+        <div class="card"><div class="card-h"><h2>Precision-recall curve</h2><span class="hint">What matters for rare events</span></div><div class="chart square" id="ch-pr"></div></div>
+      </div>
+      <div class="card"><div class="card-h"><h2>What drives the model</h2><span class="hint">Permutation importance (drop in PR-AUC when a feature is shuffled)</span></div><div class="chart" id="ch-imp"></div></div>
+    </section>
+
+    <!-- SCORE -->
+    <section class="page" id="tab-score" hidden>
+      <div class="grid g-3-2 align-start">
+        <form class="card form" id="score-form" autocomplete="off">
+          <div class="card-h"><h2>Transaction details</h2>
+            <div class="presets" id="presets"></div>
+          </div>
+          <div class="form-grid">
+            <label>Amount (₹) <input name="amount" type="number" min="1" step="0.01" required /></label>
+            <label>Customer's usual amount (₹) <input name="usual_amount" type="number" min="1" step="0.01" /></label>
+            <label>Channel <select name="channel"><option>UPI</option><option>POS</option><option>Online</option><option>ATM</option></select></label>
+            <label>Merchant category <select name="category"></select></label>
+            <label>Hour of day (0-23) <input name="hour" type="number" min="0" max="23" /></label>
+            <label>Minutes since last transaction <input name="mins_since_last" type="number" min="0" step="any" /></label>
+            <label>Transactions in past hour <input name="txn_count_1h" type="number" min="0" /></label>
+            <label>Transactions in past 24 h <input name="txn_count_24h" type="number" min="0" /></label>
+            <label>Spent in past 24 h (₹) <input name="spent_24h" type="number" min="0" step="any" /></label>
+            <label>Distance from home city (km) <input name="distance_home_km" type="number" min="0" step="any" /></label>
+            <label>Distance from last transaction (km) <input name="distance_last_km" type="number" min="0" step="any" /></label>
+            <label>Account age (days) <input name="account_age_days" type="number" min="0" /></label>
+          </div>
+          <div class="checks-row">
+            <label class="check"><input type="checkbox" name="new_device" /> New device (first seen &lt; 48 h)</label>
+            <label class="check"><input type="checkbox" name="new_merchant" /> First time at this merchant</label>
+            <label class="check"><input type="checkbox" name="international" /> International</label>
+          </div>
+          <button type="submit" class="btn">Score transaction</button>
+        </form>
+        <div class="card result" id="result" aria-live="polite"><p class="muted">Pick a preset or enter details, then score.</p></div>
+      </div>
+    </section>
+
+    <!-- PIPELINE -->
+    <section class="page" id="tab-pipeline" hidden>
+      <div class="card"><div class="card-h"><h2>How it works</h2><span class="hint" id="pipe-meta"></span></div><div class="flow" id="flow"></div></div>
+      <div class="grid g-1-1">
+        <div class="card"><div class="card-h"><h2>Star schema loaded</h2></div><div class="table-wrap" id="tbl-rows"></div></div>
+        <div class="card"><div class="card-h"><h2>Data-quality checks</h2></div><ul class="qc" id="qc"></ul></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    Python · pandas · scikit-learn (Isolation Forest + Gradient Boosting) · SQL star schema · D3.js ·
+    <a href="https://github.com/shivesh122/banking-fraud-detection" target="_blank" rel="noopener">Source on GitHub</a> ·
+    Transactions are simulated; no real customer data.
+  </footer>
+  <div class="tooltip" id="tip" role="status"></div>
+  <script src="vendor/d3.v7.min.js"></script>
+  <script src="scorer.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
